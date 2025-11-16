@@ -23,32 +23,23 @@ class Terrain:
     def generate_terrain(self, heightmap_path):
         # Carregar imagem
         try:
-            image = Image.open(heightmap_path).convert('L') # Converte para Escala de Cinza
-        except:
+            image = Image.open(heightmap_path).convert('L')
+        except Exception as e:
             print(f"ERRO: Não encontrei {heightmap_path}. Usando plano chato.")
-            # Cria uma imagem 2x2 preta se falhar (fallback)
             image = Image.new('L', (2, 2), color=0)
 
         self.width, self.depth = image.size
         pixels = image.load()
         
-        vertices = []
-        indices = []
-
-        # Gerar Vértices (Iterar pixel por pixel)
-        # Centralizando o terreno para (0,0,0) ficar no meio
-        start_x = -settings.TERRAIN_SIZE / 2.0
-        start_z = -settings.TERRAIN_SIZE / 2.0
-        
-        step_x = settings.TERRAIN_SIZE / float(self.width - 1)
-        step_z = settings.TERRAIN_SIZE / float(self.depth - 1)
-
         self.heights = [[0.0 for _ in range(self.depth)] for _ in range(self.width)]
-
-        # Armazenar posições e normais
-        vertices_pos = []
-        normals = []
-        indices = []
+        
+        # Listas para armazenar dados ---
+        vertices_pos = [] # Armazena Posições (temporário)
+        normals = []      # Armazena Normais (temporário)
+        indices = []      # Armazena Índices
+        
+        # Array final que será enviado à GPU
+        interleaved_data = [] 
 
         start_x = -settings.TERRAIN_SIZE / 2.0
         start_z = -settings.TERRAIN_SIZE / 2.0
@@ -56,24 +47,19 @@ class Terrain:
         step_z = settings.TERRAIN_SIZE / float(self.depth - 1)
 
         print("Gerando terreno (Posições e Alturas)... aguarde.")
-
-        for i in range(self.depth):     # Z (Linhas da imagem)
-            for j in range(self.width): # X (Colunas da imagem)
-                
-                # Calcular posição X, Z
+        
+        # Gerar Posições de Vértices e armazenar alturas
+        for i in range(self.depth):     # Z
+            for j in range(self.width): # X
                 x = start_x + (j * step_x)
                 z = start_z + (i * step_z)
-                
-                # Calcular altura Y (0 a 255 da imagem -> 0 a MAX_HEIGHT)
                 y = (pixels[j, i] / 255.0) * settings.MAX_TERRAIN_HEIGHT
-                self.heights[j][i] = y # Armazena para física
                 
-                # Adicionar vértice (x, y, z)
-                vertices.extend([x, y, z])
+                self.heights[j][i] = y
+                vertices_pos.append(glm.vec3(x, y, z)) # Adiciona Posição
 
         print("Calculando Normais...")
-
-        # Cálculo de Normais
+        
         # Helper para pegar altura de forma segura
         def get_height_safe(j, i):
             j_safe = max(0, min(j, self.width - 1))
@@ -82,66 +68,60 @@ class Terrain:
 
         for i in range(self.depth):
             for j in range(self.width):
-                # Pega altura dos vizinhos
                 height_l = get_height_safe(j - 1, i)
                 height_r = get_height_safe(j + 1, i)
                 height_t = get_height_safe(j, i - 1)
                 height_b = get_height_safe(j, i + 1)
                 
-                # Calcula normal e normaliza
                 normal = glm.vec3(height_l - height_r, 2.0, height_t - height_b)
-                normals.append(glm.normalize(normal))
+                normals.append(glm.normalize(normal)) # Adiciona Normal
 
-
-        # Gerar Índices (Conectar os pontos em triângulos)
+        # Gerar Índices
         for i in range(self.depth - 1):
             for j in range(self.width - 1):
-                
-                # vértices do quadrado atual
                 top_left = (i * self.width) + j
                 top_right = top_left + 1
                 bottom_left = ((i + 1) * self.width) + j
                 bottom_right = bottom_left + 1
-                
-                # Dois triângulos
                 indices.extend([top_left, bottom_left, top_right])
                 indices.extend([top_right, bottom_left, bottom_right])
 
         self.indices_count = len(indices)
 
-        # Enviar para GPUcom Posição e Normal
-        
-        # Combinar posições e normais em um único array
-        interleaved_data = []
+        # Combinar Posições e Normais no array final
+        # Verifique se os vértices foram realmente gerados
+        if not vertices_pos or not normals:
+             print("ERRO: Vértices ou normais não foram gerados.")
+             return # Impede de continuar com 0 vértices
+
         for i in range(len(vertices_pos)):
             interleaved_data.extend([vertices_pos[i].x, vertices_pos[i].y, vertices_pos[i].z])
             interleaved_data.extend([normals[i].x, normals[i].y, normals[i].z])
             
+        # Enviar para GPU
         vertex_data_np = np.array(interleaved_data, dtype=np.float32)
         index_data_np = np.array(indices, dtype=np.uint32)
 
         glBindVertexArray(self.vao)
 
-        # VBO (Dados dos vértices)
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
         glBufferData(GL_ARRAY_BUFFER, vertex_data_np.nbytes, vertex_data_np, GL_STATIC_DRAW)
 
-        # EBO (Índices)
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, index_data_np.nbytes, index_data_np, GL_STATIC_DRAW)
 
-        # Layout do VBO
-        stride = 6 * 4 # 6 floats (pos + normal) * 4 bytes cada
-
+        stride = 6 * 4
+        
         # Atributo 0: Posição (vec3)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
         glEnableVertexAttribArray(0)
-
+        
         # Atributo 1: Normal (vec3)
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * 4)) # Offset de 3 floats
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(3 * 4))
         glEnableVertexAttribArray(1)
 
         glBindVertexArray(0)
+        
         print(f"Terreno gerado com {len(vertices_pos)} vértices.")
 
     def draw(self, camera, projection_matrix, sun_direction):

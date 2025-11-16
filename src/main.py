@@ -30,6 +30,9 @@ class Engine:
         # Tornar o contexto da janela o principal
         glfw.make_context_current(self.window)
 
+        # Habilitar o Teste de Profundidade
+        glEnable(GL_DEPTH_TEST)
+
         # Variaveis para o delta_time ( tempo entre frames )
         self.last_time = glfw.get_time()
         self.delta_time = 0.0
