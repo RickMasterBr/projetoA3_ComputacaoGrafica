@@ -114,3 +114,22 @@ class Terrain:
         glDrawElements(GL_TRIANGLES, self.indices_count, GL_UNSIGNED_INT, None)
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL) # Voltar ao normal
         glBindVertexArray(0)
+
+    def get_height(self, world_x, world_z):
+        """ Converte coordenadas do mundo em altura do terreno. """
+
+        # Converter coordenada do mundo (ex: -150 a +150) para 0.0-1.0
+        percent_x = (world_x + (settings.TERRAIN_SIZE / 2.0)) / settings.TERRAIN_SIZE
+        percent_z = (world_z + (settings.TERRAIN_SIZE / 2.0)) / settings.TERRAIN_SIZE
+
+        # Converter 0.0-1.0 para índice do array (ex: 0 a 1023)
+        map_j = int(percent_x * (self.width - 1)) # Coluna
+        map_i = int(percent_z * (self.depth - 1)) # Linha
+
+        # Verificar limites
+        map_j = max(0, min(self.width - 2, map_j))
+        map_i = max(0, min(self.depth - 2, map_i))
+
+        # Retornar altura armazenada
+        # (Adicionamos um 'buffer' de 0.2m para evitar que a câmera entre no chão)
+        return self.heights[map_j][map_i] + 0.2
