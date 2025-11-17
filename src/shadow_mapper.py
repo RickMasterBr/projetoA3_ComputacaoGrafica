@@ -8,10 +8,10 @@ class ShadowMapper:
 
         # Criar a textura de profundidade (O mapa)
         self.depth_map_texture = glGenTextures(1)
-        glBlindTexture(GL_TEXTURE_2D, self.depth_map_texture)
+        glBindTexture(GL_TEXTURE_2D, self.depth_map_texture)
 
         # Confugurar a textura para armazenar apenas a profundidade
-        glTextImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT,
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT,
                       settings.SHADOW_MAP_WIDTH,
                       settings.SHADOW_MAP_HEIGHT,
                       0, GL_DEPTH_COMPONENT, GL_FLOAT, None)
