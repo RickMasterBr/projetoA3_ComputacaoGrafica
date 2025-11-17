@@ -7,9 +7,9 @@ class Shader:
 
         # Carregar o código fonte dos shaders
         try:
-            with open(vertex_path, 'r') as f:
+            with open(vertex_path, 'r', encoding='utf-8') as f:
                 vertex_source = f.read()
-            with open(fragment_path, 'r') as f:
+            with open(fragment_path, 'r', encoding='utf-8') as f:
                 fragment_source = f.read()
         except FileNotFoundError as e:
             print("Erro: Arquivo de shader não encontrado. {e}")
