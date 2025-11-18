@@ -99,6 +99,10 @@ class Engine:
             # Atualizar o ciclo do dia
             self.update_day_night_cycle()
 
+            # Renderizar a sombras
+            # Pegar a altura do terreno no centro para posicionar o personagem
+            terrain_height_at_center = self.terrain.get_height(0, 0)
+
             # Renderizar o mapa de sombras
             # Calcular a Matriz de Luz (Câmera do Sol)
             # Projeção Ortográfica (Sol é luz direcional, raios paralelos)

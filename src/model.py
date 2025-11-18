@@ -67,10 +67,13 @@ class Model:
             print(f"ERRO ao carregar modelo: {e}")
 
     def process_node(self, node, scene):
-        for mesh_index in node.meshes:
-            mesh = scene.meshes[mesh_index]
-            self.meshes.append(self.process_mesh(mesh, scene))
+        # Usar 'mesh_indices' em vez de 'meshes'
+        if hasattr(node, 'mesh_indices'):
+            for mesh_index in node.mesh_indices:
+                mesh = scene.meshes[mesh_index]
+                self.meshes.append(self.process_mesh(mesh, scene))
         
+        # Repete para os filhos
         for child in node.children:
             self.process_node(child, scene)
 
