@@ -1,7 +1,8 @@
 from OpenGL.GL import *
 import numpy as np
 import ctypes
-import assimp_py
+import impasse
+import glm
 
 class Mesh:
     def __init__(self, vertices, indices):
@@ -14,21 +15,33 @@ class Mesh:
 
     def setup_mesh(self):
         glBindVertexArray(self.vao)
-
+        
+        # VBO
         glBindBuffer(GL_ARRAY_BUFFER, self.vbo)
         glBufferData(GL_ARRAY_BUFFER, self.vertices.nbytes, self.vertices, GL_STATIC_DRAW)
 
+        # EBO
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.ebo)
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, self.indices.nbytes, self.indices, GL_STATIC_DRAW)
 
-        # Layout (Stride = 32 bytes: 3 pos + 3 norm + 2 tex)
-        stride = 32 
+        # Layout (Stride = 64 bytes: 3 pos + 3 norm + 2 uv + 4 bone_id + 4 weight)
+        stride = 64
+        
+        # 0: Posição
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
+        # 1: Normal
         glEnableVertexAttribArray(1)
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
+        # 2: UV
         glEnableVertexAttribArray(2)
         glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(24))
+        # 3: Bone IDs (Inteiros!)
+        glEnableVertexAttribArray(3)
+        glVertexAttribIPointer(3, 4, GL_INT, stride, ctypes.c_void_p(32))
+        # 4: Weights
+        glEnableVertexAttribArray(4)
+        glVertexAttribPointer(4, 4, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(48))
 
         glBindVertexArray(0)
 
@@ -41,80 +54,101 @@ class Model:
     def __init__(self, path, shader):
         self.shader = shader
         self.meshes = []
+        self.bone_map = {}
+        self.bone_info = []
+        self.bone_counter = 0
         self.load_model(path)
 
     def load_model(self, path):
-        print(f"Carregando modelo: {path}...")
-        # Flags: Triangulate e GenNormals são essenciais
-        flags = assimp_py.Process_Triangulate | assimp_py.Process_FlipUVs | assimp_py.Process_GenNormals | assimp_py.Process_JoinIdenticalVertices
-        
+        print(f"Carregando modelo (impasse): {path}...")
         try:
-            scene = assimp_py.import_file(path, flags)
+            # Impasse carrega direto (sem flags complexas, ele usa padrão bom)
+            scene = impasse.load(path)
             
-            # Detecta nome do nó raiz
-            root = None
-            if hasattr(scene, 'root_node'): root = scene.root_node
-            elif hasattr(scene, 'rootnode'): root = scene.rootnode
-            else: root = scene.mRootNode # Tentativa final
+            # Tenta achar a raiz (rootnode ou mRootNode)
+            root = getattr(scene, 'rootnode', getattr(scene, 'mRootNode', getattr(scene, 'root_node', None)))
             
-            self.process_node(root, scene)
-            print(f"Modelo carregado: {len(self.meshes)} malhas.")
+            if root:
+                self.process_node(root, scene)
+                print(f"Modelo carregado! Malhas: {len(self.meshes)} | Ossos: {self.bone_counter}")
+            else:
+                print("ERRO CRÍTICO: Nó raiz não encontrado na cena.")
+                
+            scene.release()
             
         except Exception as e:
             print(f"ERRO CRÍTICO ao carregar modelo: {e}")
-            raise
+            # Não damos raise para não fechar a janela, mas o boneco não aparecerá
 
     def process_node(self, node, scene):
-        # Nome correto para lista de índices de malha: mesh_indices
-        if hasattr(node, 'mesh_indices'):
-            for mesh_index in node.mesh_indices:
-                mesh = scene.meshes[mesh_index]
-                self.meshes.append(self.process_mesh(mesh, scene))
+        # Tenta achar a lista de malhas (meshes ou mesh_indices)
+        node_meshes = getattr(node, 'meshes', getattr(node, 'mesh_indices', []))
+        
+        for i in node_meshes:
+            mesh = scene.meshes[i]
+            self.meshes.append(self.process_mesh(mesh, scene))
         
         for child in node.children:
             self.process_node(child, scene)
 
     def process_mesh(self, mesh, scene):
+        num_v = len(mesh.vertices)
+        
         # 1. Vértices
         positions = np.array(mesh.vertices, dtype=np.float32)
-        if positions.ndim == 1: positions = positions.reshape(-1, 3)
         
         # 2. Normais
-        if mesh.normals:
+        if hasattr(mesh, 'normals') and len(mesh.normals) > 0:
             normals = np.array(mesh.normals, dtype=np.float32)
-            if normals.ndim == 1: normals = normals.reshape(-1, 3)
         else:
-            normals = np.zeros((len(positions), 3), dtype=np.float32)
-            
-        # 3. Texturas (Nome correto: texcoords)
-        tex_coords = np.zeros((len(positions), 2), dtype=np.float32)
-        
-        # A biblioteca pode retornar uma lista de canais ou None
-        if hasattr(mesh, 'texcoords') and mesh.texcoords:
-            # Pega o primeiro canal de textura (index 0)
-            channel0 = mesh.texcoords[0]
-            if channel0 is not None:
-                arr = np.array(channel0, dtype=np.float32)
-                # Garante formato (N, 2) ou (N, 3)
-                if arr.ndim == 1:
-                     # Tenta adivinhar o formato baseado no tamanho
-                     if arr.size == len(positions) * 2: arr = arr.reshape(-1, 2)
-                     elif arr.size == len(positions) * 3: arr = arr.reshape(-1, 3)
-                
-                if arr.ndim == 2 and arr.shape[1] >= 2:
-                    tex_coords = arr[:, :2] # Pega só U e V
+            normals = np.zeros((num_v, 3), dtype=np.float32)
 
-        # 4. Intercalar (Position + Normal + UV)
-        data = []
-        # Otimização: Usar numpy direto é mais rápido que loop for
-        # Formato: [px, py, pz, nx, ny, nz, u, v]
-        # Stack horizontalmente
-        interleaved = np.hstack((positions, normals, tex_coords))
-        vertex_data = interleaved.flatten().astype(np.float32)
+        # 3. Texturas (Tenta 'texturecoords' do impasse)
+        tex_coords = np.zeros((num_v, 2), dtype=np.float32)
+        uv_channels = getattr(mesh, 'texturecoords', getattr(mesh, 'texcoords', None))
         
-        # 5. Índices (Nome correto: indices)
-        # A biblioteca já entrega a lista pronta!
-        index_data = np.array(mesh.indices, dtype=np.uint32)
+        if uv_channels and len(uv_channels) > 0 and uv_channels[0] is not None:
+             uv = np.array(uv_channels[0], dtype=np.float32)
+             # Se vier com 3 componentes (u,v,w), pega só 2
+             if uv.shape[1] > 2: tex_coords = uv[:, :2]
+             else: tex_coords = uv
+
+        # 4. Ossos (Recuperado!)
+        bone_ids = np.zeros((num_v, 4), dtype=np.int32)
+        weights = np.zeros((num_v, 4), dtype=np.float32)
+
+        if hasattr(mesh, 'bones'):
+            for bone in mesh.bones:
+                if bone.name not in self.bone_map:
+                    self.bone_map[bone.name] = self.bone_counter
+                    self.bone_counter += 1
+                    # Transpor matriz para OpenGL (Column-Major)
+                    offset = np.array(bone.offsetmatrix, dtype=np.float32).transpose()
+                    self.bone_info.append(offset)
+                
+                b_id = self.bone_map[bone.name]
+                for w in bone.weights:
+                    if w.weight == 0.0: continue
+                    for i in range(4):
+                        if weights[w.vertexid][i] == 0.0:
+                            weights[w.vertexid][i] = w.weight
+                            bone_ids[w.vertexid][i] = b_id
+                            break
+
+        # 5. Índices (A CORREÇÃO PRINCIPAL)
+        indices = []
+        if hasattr(mesh, 'faces'):
+             # Impasse usa 'faces', que é uma lista de listas. Precisamos aplanar.
+             for face in mesh.faces:
+                 indices.extend(face)
+        elif hasattr(mesh, 'indices'):
+             indices = mesh.indices
+        
+        index_data = np.array(indices, dtype=np.uint32)
+
+        # Intercalar dados para GPU
+        interleaved = np.column_stack((positions, normals, tex_coords, bone_ids.astype(np.float32), weights))
+        vertex_data = interleaved.flatten().astype(np.float32)
 
         return Mesh(vertex_data, index_data)
 
