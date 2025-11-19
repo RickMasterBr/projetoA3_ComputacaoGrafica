@@ -44,6 +44,40 @@ class Engine:
         # Variaveis para o delta_time ( tempo entre frames )
         self.last_time = glfw.get_time()
         self.delta_time = 0.0
+        
+        self.sun_direction = glm.normalize(glm.vec3(0.3, 0.6, 0.2))
+
+        # ----------- SHADER DO SOL -----------
+        self.sun_shader = Shader("shaders/sun.vert", "shaders/sun.frag")
+
+        # Quad de 2 triângulos
+        sun_vertices = np.array([
+            -1.0, -1.0, 0.0,
+             1.0, -1.0, 0.0,
+             1.0,  1.0, 0.0,
+            -1.0,  1.0, 0.0
+        ], dtype=np.float32)
+
+        sun_indices = np.array([0, 1, 2, 2, 3, 0], dtype=np.uint32)
+
+        self.sun_vao = glGenVertexArrays(1)
+        self.sun_vbo = glGenBuffers(1)
+        self.sun_ebo = glGenBuffers(1)
+
+        glBindVertexArray(self.sun_vao)
+
+        glBindBuffer(GL_ARRAY_BUFFER, self.sun_vbo)
+        glBufferData(GL_ARRAY_BUFFER, sun_vertices.nbytes, sun_vertices, GL_STATIC_DRAW)
+
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, self.sun_ebo)
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sun_indices.nbytes, sun_indices, GL_STATIC_DRAW)
+
+        glEnableVertexAttribArray(0)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * 4, ctypes.c_void_p(0))
+
+        glBindVertexArray(0)
+
+
 
         # Instanciar a câmera
         self.camera = Camera(position=glm.vec3(0,5,0)) # Posição inicial da câmera
@@ -96,158 +130,132 @@ class Engine:
             exit() # Sair se os shaders não carregarem
 
     def run(self):
-        
-        # Implementar o Loop (Manter o programa rodando)
-        while not glfw.window_should_close(self.window):
-            
-            # Calcular o delta_time ( deve ser o primeiro passo do loop )
-            current_time = glfw.get_time()
-            self.delta_time = current_time - self.last_time
-            self.last_time = current_time
+    # Loop principal
+     while not glfw.window_should_close(self.window):
+        # ---------- tempo ----------
+        current_time = glfw.get_time()
+        self.delta_time = current_time - self.last_time
+        self.last_time = current_time
 
-            # Verificar eventos (Como fechar a janela)
-            glfw.poll_events()
+        # ---------- eventos e input ----------
+        glfw.poll_events()
+        self.process_keyboard_input()
 
-            self.process_keyboard_input()
+        # ---------- física da câmera ----------
+        self.camera.update_physics(self.delta_time, self.terrain)
 
-            # Atualizar a física da câmera
-            self.camera.update_physics(self.delta_time, self.terrain)
+        # ---------- atualizar ciclo dia/noite ----------
+        self.update_day_night_cycle()
 
-            # Atualizar o ciclo do dia
-            self.update_day_night_cycle()
+        # ---------- preparar dados para sombras ----------
+        # pegar altura do terreno para posicionamento
+        self.terrain_height_at_center = self.terrain.get_height(0, 0)
 
-            # Renderizar a sombras
-            # Pegar a altura do terreno no centro para posicionar o personagem
-            self.terrain_height_at_center = self.terrain.get_height(0, 0)
+        # matriz ortográfica para luz direcional (sol)
+        near_plane = 1.0
+        far_plane = 200.0
+        size = 80.0
+        light_projection = glm.ortho(-size, size, -size, size, near_plane, far_plane)
 
-            # Renderizar o mapa de sombras
-            # Calcular a Matriz de Luz (Câmera do Sol)
-            # Projeção Ortográfica (Sol é luz direcional, raios paralelos)
-            # Abrange uma área de 100x100 ao redor da câmera
-            near_plane = 1.0
-            far_plane = 200.0
-            size = 80.0 
-            light_projection = glm.ortho(-size, size, -size, size, near_plane, far_plane)
-            
-            # Visão: O sol olha para a posição da câmera do jogador (mas de longe)
-            # Posicionamos o "olho" do sol na direção da luz, a 100m de distância
-            light_pos = self.camera.pos + (self.sun_direction * 100.0)
-            light_view = glm.lookAt(light_pos, self.camera.pos, glm.vec3(0, 1, 0))
-            
-            light_space_matrix = light_projection * light_view
+        # posição "olho" do sol a certa distância na direção da luz
+        light_pos = self.camera.pos + (self.sun_direction * 100.0)
+        light_view = glm.lookAt(light_pos, self.camera.pos, glm.vec3(0, 1, 0))
+        light_space_matrix = light_projection * light_view
 
-            # Renderizar
-            self.shadow_mapper.bind() # Ativa o framebuffer de sombra
-            
-            # Usar o shader simples de sombra
-            self.shadow_shader.use()
-            self.shadow_shader.set_uniform_mat4("lightSpaceMatrix", light_space_matrix)
-            
-            # Desenhar o terreno (apenas geometria) para o mapa de sombra
-            # Precisamos de um método draw simples no terrain ou passar o shader de sombra
-            # TRUQUE: Vamos adicionar um 'override_shader' no draw do Terrain
-            self.terrain.draw(self.camera, projection=None, sun_direction=None, override_shader=self.shadow_shader)
-            
-            # Desenha Personagem na Sombra
-            model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
-            # Reduzir escala se o boneco for gigante (comum no Mixamo)
-            model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01)) 
-            
-            self.shadow_shader.set_uniform_mat4("model", model_matrix)
-            self.character.draw(self.shadow_shader) # Usa o shader de sombra
+        # ---------- gerar mapa de sombras (depth map) ----------
+        self.shadow_mapper.bind()
+        self.shadow_shader.use()
+        self.shadow_shader.set_uniform_mat4("lightSpaceMatrix", light_space_matrix)
 
-            self.shadow_mapper.unbind(self.width, self.height) # Volta pra tela normal
+        # desenhar apenas geometria para o depth map (override shader)
+        # supondo que terrain.draw aceita override_shader (como você comentou)
+        self.terrain.draw(self.camera, projection=None, sun_direction=None, override_shader=self.shadow_shader)
 
-            # RENDERIZAR CENA NORMAL (Com Sombras)
-            # definir a cor do céu baseado na hora do dia
-            glClearColor(self.sky_color.r, self.sky_color.g, self.sky_color.b, 1.0)
+        # desenhar o personagem no mapa de sombra
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
+        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
+        self.shadow_shader.set_uniform_mat4("model", model_matrix)
+        self.character.draw(self.shadow_shader)
 
-            # limpar a tela antes de desenhar um novo quadro
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+        self.shadow_mapper.unbind(self.width, self.height)
 
-            # Renderizar o Terreno
-            # Cria a matriz de projeção (Lente da câmera)
-            projection = glm.perspective(glm.radians(45.0), self.width / self.height, 0.1, 1000.0)
-            
-            # Configurar Shader do Terreno para receber sombras
-            self.terrain_shader.use()
-            self.terrain_shader.set_uniform_mat4("u_light_space_matrix", light_space_matrix) # <--- Envia a matriz
-            self.terrain_shader.set_uniform_int("u_shadow_map", 1) # <--- Textura na unidade 1
-            
-            # Ativar a textura de sombra na unidade 1
-            glActiveTexture(GL_TEXTURE1)
-            glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
+        # ---------- limpar framebuffer principal e configurar céu ----------
+        glClearColor(self.sky_color.r, self.sky_color.g, self.sky_color.b, 1.0)
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-            # Desenhar o terreno considerando a direção do sol
-            self.terrain.draw(self.camera, projection, self.sun_direction)
+        # ---------- projeção principal ----------
+        projection = glm.perspective(glm.radians(45.0), self.width / self.height, 0.1, 1000.0)
 
-            # Desenha o Personagem 
-            self.model_shader.use()
-            self.model_shader.set_uniform_mat4("view", self.camera.get_view_matrix())
-            self.model_shader.set_uniform_mat4("projection", projection)
-            self.model_shader.set_uniform_vec3("u_sun_direction", self.sun_direction)
-            self.model_shader.set_uniform_vec3("u_sun_color", settings.COLOR_SUN)
-            self.model_shader.set_uniform_vec3("u_ambient_color", settings.COLOR_AMBIENT)
-            self.model_shader.set_uniform_mat4("u_light_space_matrix", light_space_matrix)
-            self.model_shader.set_uniform_int("u_shadow_map", 1) # Mesma textura de sombra
+        # ---------- desenhar terreno (com sombras) ----------
+        self.terrain_shader.use()
+        self.terrain_shader.set_uniform_mat4("u_light_space_matrix", light_space_matrix)
+        self.terrain_shader.set_uniform_int("u_shadow_map", 1)  # textura na unidade 1
 
-            # Matriz de Modelo (Mesma da sombra)
-            # Vamos pegar a altura do terreno no centro (0,0) para ele não afundar
-            h = self.terrain.get_height(0, 0)
+        glActiveTexture(GL_TEXTURE1)
+        glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
 
-            escala = 4.0
+        self.terrain.draw(self.camera, projection, self.sun_direction)
 
-            model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
-            model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala)) # Ajuste a escala conforme necessário
-            
-            # Atualizar a animação 
-            self.character.update_animation(self.delta_time) # Avança o tempo da animação
+        # ---------- desenhar personagem (com sombras e iluminação) ----------
+        self.model_shader.use()
+        self.model_shader.set_uniform_mat4("view", self.camera.get_view_matrix())
+        self.model_shader.set_uniform_mat4("projection", projection)
+        self.model_shader.set_uniform_vec3("u_sun_direction", self.sun_direction)
+        self.model_shader.set_uniform_vec3("u_sun_color", settings.COLOR_SUN)
+        self.model_shader.set_uniform_vec3("u_ambient_color", settings.COLOR_AMBIENT)
+        self.model_shader.set_uniform_mat4("u_light_space_matrix", light_space_matrix)
+        self.model_shader.set_uniform_int("u_shadow_map", 1)
 
-            self.model_shader.set_uniform_mat4("model", model_matrix)
-            
-            # Ativar textura de sombra (já deve estar ativa do terreno, mas garante)
-            glActiveTexture(GL_TEXTURE1)
-            glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
+        escala = 4.0
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
+        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
 
-            self.character.draw(self.model_shader)
+        self.character.update_animation(self.delta_time)
+        self.model_shader.set_uniform_mat4("model", model_matrix)
 
+        # garantir que a textura de sombra está ativa
+        glActiveTexture(GL_TEXTURE1)
+        glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
 
-            game_hour = (self.scene_time / 60.0) % 24.0
-            hour = int(game_hour)
-            minute = int((game_hour - hour) * 60)
-            time_str = f"{hour:02d}:{minute:02d}"
+        self.character.draw(self.model_shader)
 
-            # HUD sempre por cima
-            glDisable(GL_DEPTH_TEST)
-            glEnable(GL_BLEND)
-            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        # ---------- desenhar o sol (BILLBOARD) -----------
+        # chama seu método render_sun, que espera a projection principal
+        self.render_sun(projection)
 
-            self.text_shader.use()
-            self.text_shader.set_uniform_mat4("projection", self.hud_projection)
-            self.text_shader.set_uniform_int("text", 0)  # garante sampler
+        # ---------- HUD (relógio) ----------
+        game_hour = (self.scene_time / 60.0) % 24.0
+        hour = int(game_hour)
+        minute = int((game_hour - hour) * 60)
+        time_str = f"{hour:02d}:{minute:02d}"
 
-            self.text_renderer.render_text(
-                self.text_shader,
-                time_str,           # <--- aqui está o 10:17 / 18:00
-                20,                 # posição X
-                self.height - 40,   # posição Y
-                1.0,                # escala
-                (1.0, 1.0, 1.0)     # cor branca
-            )
+        # HUD sempre por cima
+        glDisable(GL_DEPTH_TEST)
+        glEnable(GL_BLEND)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-            glDisable(GL_BLEND)
-            glEnable(GL_DEPTH_TEST)
+        self.text_shader.use()
+        self.text_shader.set_uniform_mat4("projection", self.hud_projection)
+        self.text_shader.set_uniform_int("text", 0)
 
+        self.text_renderer.render_text(
+            self.text_shader,
+            time_str,
+            20,
+            self.height - 40,
+            1.0,
+            (1.0, 1.0, 1.0)
+        )
 
-                
-            glDisable(GL_BLEND)                    
-            glEnable(GL_DEPTH_TEST)
-            
-            # Mostrar o que foi desenhado
-            glfw.swap_buffers(self.window)
-            
-        #Finalizar
-        glfw.terminate()
+        glDisable(GL_BLEND)
+        glEnable(GL_DEPTH_TEST)
+
+        # ---------- trocar buffers ----------
+        glfw.swap_buffers(self.window)
+
+    # finalizar
+    glfw.terminate()
+
 
     def mouse_callback(self, window, xpos, ypos):
         """Callback do movimento do mouse"""
@@ -304,13 +312,46 @@ class Engine:
         if glfw.get_key(self.window, glfw.KEY_SPACE) == glfw.PRESS:
             self.camera.jump()
         
+        
+        
+        
+        
+    def render_sun(self, projection):
+        self.sun_shader.use()
+
+        # posição do sol a 200 metros na direção dele
+        sun_pos_world = self.camera.pos + self.sun_direction * 200.0
+
+        view = self.camera.get_view_matrix()
+
+        # Billboard = remove rotação da view
+        billboard_view = glm.mat4(glm.mat3(view))
+
+        # Model = traduz para posição do sol, escalar um pouco
+        model = glm.translate(glm.mat4(1.0), sun_pos_world)
+        model = model * glm.inverse(billboard_view)   # faz o quad ficar sempre virado pra câmera
+        model = glm.scale(model, glm.vec3(10.0, 10.0, 10.0))  # tamanho do sol
+
+        self.sun_shader.set_uniform_mat4("projection", projection)
+        self.sun_shader.set_uniform_mat4("view", view)
+        self.sun_shader.set_uniform_mat4("model", model)
+
+        # desenhar quad
+        glDisable(GL_DEPTH_TEST)   # evita o sol ficar "cortado" pelo terreno
+        glBindVertexArray(self.sun_vao)
+        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, None)
+        glBindVertexArray(0)
+        glEnable(GL_DEPTH_TEST)
+        
+        
+        
     def update_day_night_cycle(self):
         """Calcula a posição do sol e a cor do ceú"""
 
         # Simulação do Sol, o projeto pede 1 min real = 1 hora no jogo (ou seja, 60x mais rápido)
         # (Vamos usar 20x mais rápido para testar, senão é muito lento)
         # deixei mais lenta -- jorge
-        self.scene_time += self.delta_time * 1 
+        self.scene_time += self.delta_time * 2
         
         # game_hour = (self.scene_time / 60.0) % 24.0 # (Fórmula do PDF)
         game_hour = (self.scene_time / 60.0) % 24.0 # (Mais rápido para teste)
