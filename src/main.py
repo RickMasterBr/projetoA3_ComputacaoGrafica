@@ -119,8 +119,12 @@ class Engine:
             # Inicializar o terreno com o shader
             self.terrain = Terrain(self.terrain_shader)
 
-            # NOVO PERSONAGEM
+            # Importar personagens
             self.character = Model("assets/models/character.glb", self.model_shader)
+            self.abe = Model("assets/models/abe.glb", self.model_shader)
+            self.jackie = Model("assets/models/jackie.glb", self.model_shader)
+            self.michelle = Model("assets/models/michelle.glb", self.model_shader)
+
 
             self.shadow_mapper = ShadowMapper()
 
@@ -168,7 +172,6 @@ class Engine:
         self.shadow_shader.set_uniform_mat4("lightSpaceMatrix", light_space_matrix)
 
         # desenhar apenas geometria para o depth map (override shader)
-        # supondo que terrain.draw aceita override_shader (como você comentou)
         self.terrain.draw(self.camera, projection=None, sun_direction=None, override_shader=self.shadow_shader)
 
         # desenhar o personagem no mapa de sombra
@@ -176,6 +179,25 @@ class Engine:
         model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
         self.shadow_shader.set_uniform_mat4("model", model_matrix)
         self.character.draw(self.shadow_shader)
+
+        # ---------- PERSONAGENS EXTRAS NO SHADOW MAP ----------,
+        # ABE
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(5, self.terrain_height_at_center, 0))
+        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
+        self.shadow_shader.set_uniform_mat4("model", model_matrix)
+        self.abe.draw(self.shadow_shader)
+
+        # JACKIE
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(-5, self.terrain_height_at_center, 3))
+        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
+        self.shadow_shader.set_uniform_mat4("model", model_matrix)
+        self.jackie.draw(self.shadow_shader)
+
+        # MICHELLE
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(2, self.terrain_height_at_center, -4))
+        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
+        self.shadow_shader.set_uniform_mat4("model", model_matrix)
+        self.michelle.draw(self.shadow_shader)
 
         self.shadow_mapper.unbind(self.width, self.height)
 
@@ -207,20 +229,43 @@ class Engine:
         self.model_shader.set_uniform_int("u_shadow_map", 1)
 
         escala = 4.0
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
-        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
 
+        # atualizar animações
         self.character.update_animation(self.delta_time)
-        self.model_shader.set_uniform_mat4("model", model_matrix)
+        self.abe.update_animation(self.delta_time)
+        self.michelle.update_animation(self.delta_time)
+        self.jackie.update_animation(self.delta_time)
 
         # garantir que a textura de sombra está ativa
         glActiveTexture(GL_TEXTURE1)
         glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
 
+        # ---------- PERSONAGENS EXTRAS ----------
+        # ABE
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(5, self.terrain_height_at_center, 0))
+        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
+        self.model_shader.set_uniform_mat4("model", model_matrix)
+        self.abe.draw(self.model_shader)
+
+        # JACKIE
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(-5, self.terrain_height_at_center, 3))
+        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
+        self.model_shader.set_uniform_mat4("model", model_matrix)
+        self.jackie.draw(self.model_shader)
+
+        # MICHELLE
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(2, self.terrain_height_at_center, -4))
+        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
+        self.model_shader.set_uniform_mat4("model", model_matrix)
+        self.michelle.draw(self.model_shader)
+
+        # ---------- PERSONAGEM PRINCIPAL ----------
+        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
+        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
+        self.model_shader.set_uniform_mat4("model", model_matrix)
         self.character.draw(self.model_shader)
 
         # ---------- desenhar o sol (BILLBOARD) -----------
-        # chama seu método render_sun, que espera a projection principal
         self.render_sun(projection)
 
         # ---------- HUD (relógio) ----------
