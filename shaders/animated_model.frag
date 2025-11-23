@@ -54,7 +54,7 @@ void main()
 
     // 3. APLICAÇÃO DO FOG
     float depth = gl_FragCoord.z / gl_FragCoord.w;
-    float fog_factor = smoothstep(200.0, 450.0, depth);
+    float fog_factor = smoothstep(80.0, 280.0, depth);
     
     // Mistura a cor final com a cor do céu baseada na distância
     vec3 color_with_fog = mix(finalColor, u_sky_color, fog_factor);

@@ -8,6 +8,7 @@ from shader import Shader  # Importação corrigida (sem 'src.')
 
 class Vegetation:
     def __init__(self, terrain, count=150):
+        self.tree_positions = [] # <--- NOVO: Lista de posições (x, z, raio)
         self.terrain = terrain
         self.count = count
         self.vertices = []
@@ -26,6 +27,7 @@ class Vegetation:
         spawn_radius = 280 
         
         while generated < self.count and attempts < self.count * 10:
+            
             attempts += 1
             
             # Posição Aleatória
@@ -47,25 +49,40 @@ class Vegetation:
                 
             self.add_tree(x, y, z)
             generated += 1
-            
-    def add_tree(self, x, y, z):
-        # Configuração da Árvore
-        trunk_color = [0.4, 0.25, 0.1] # Marrom escuro
-        
-        # Variação na cor das folhas
-        green_var = random.uniform(0.0, 0.2)
-        leaf_color = [0.1, 0.6 + green_var, 0.2] 
-        
-        scale = random.uniform(0.8, 1.5)
-        
-        # 1. TRONCO 
-        self.add_cylinder(x, y, z, 0.6 * scale, 3.0 * scale, trunk_color)
-        
-        # 2. COPA (3 Pirâmides)
-        self.add_cone(x, y + 2.5*scale, z, 2.5*scale, 2.5*scale, leaf_color) # Baixo
-        self.add_cone(x, y + 4.5*scale, z, 2.0*scale, 2.5*scale, leaf_color) # Meio
-        self.add_cone(x, y + 6.5*scale, z, 1.5*scale, 2.0*scale, leaf_color) # Topo
 
+            # Adicione isso logo após o loop das árvores
+            for _ in range(100):
+    
+                # Desenhe uma "Pedra Low Poly" (Um cone achatado cinza)
+                stone_color = [0.6, 0.6, 0.65] # Cinza azulado
+                self.add_cone(x, y, z, radius=random.uniform(1.0, 2.0), height=random.uniform(0.5, 1.0), color=stone_color)
+
+
+
+
+    def add_tree(self, x, y, z):
+        # Cores Pastel
+        trunk_color = [0.55, 0.45, 0.40] # Marrom acinzentado
+        leaf_color  = [0.48, 0.77, 0.63] # Verde menta
+        
+        scale = random.uniform(1.2, 2.5)
+        
+        # 1. TRONCO (Mais grosso e curto)
+        self.add_cylinder(x, y, z, 0.5 * scale, 2.0 * scale, trunk_color)
+        
+        # 2. COPA (Estilo "Nuvem" - 2 Icosaedros achatados)
+        # Copa Base
+        self.add_cone(x, y + 1.5*scale, z, 2.5*scale, 2.0*scale, leaf_color)
+        # Copa Topo (rotacionada ou deslocada para parecer orgânico)
+        self.add_cone(x, y + 3.0*scale, z, 1.8*scale, 1.5*scale, leaf_color)
+        
+        # Opcional: Adicionar uma pedra pequena na base
+        if random.random() > 0.7:
+            self.add_cone(x + 1.0, y, z + 0.5, 0.8, 0.6, [0.5, 0.5, 0.6]) # Pedra cinza
+
+        # Guardar posição para colisão (x, z e raio do tronco aprox 1.0)
+        self.tree_positions.append((x, z, 1.0))
+   
     def add_cylinder(self, cx, cy, cz, radius, height, color):
         segments = 6 # Hexagonal (Low Poly)
         angle_step = (math.pi * 2) / segments

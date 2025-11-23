@@ -28,7 +28,7 @@ void main()
 
     // Calculo simples de Fog baseado na profundidade do fragmento
     float depth = gl_FragCoord.z / gl_FragCoord.w; 
-    float fog_factor = smoothstep(200.0, 450.0, depth);
+    float fog_factor = smoothstep(80.0, 280.0, depth);
     
     out_color = vec4(mix(color_result, u_sky_color, fog_factor), 1.0);
 }

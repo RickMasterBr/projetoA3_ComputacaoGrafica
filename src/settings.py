@@ -21,14 +21,14 @@ CAMERA_SENSITIVITY = 0.1
 # Configurações do Terreno
 TERRAIN_SIZE = 300.0 # O PDF pede >= 300m (Regra 1.a)
 
-# Paleta de cores para o céu
-COLOR_DAY = glm.vec3(0.5, 0.7, 1.0) # Azul claro
-COLOR_SUNSET = glm.vec3(1.0, 0.5, 0.2) # Laranja
-COLOR_NIGHT = glm.vec3(0.0, 0.0, 0.05) # Azul muito escuro
+# Cores Pastel (Refinadas)
+COLOR_DAY     = glm.vec3(0.53, 0.81, 0.92) # Sky Blue mais vivo (menos cinza)
+COLOR_SUNSET  = glm.vec3(0.96, 0.70, 0.65) # Salmão suave
+COLOR_NIGHT   = glm.vec3(0.05, 0.05, 0.15) # Azul meia-noite (não preto total)
 
-# Iluminação
-COLOR_SUN = glm.vec3(1.0, 1.0, 0.8)     # Cor da luz do sol (amarelo claro)
-COLOR_AMBIENT = glm.vec3(0.1, 0.1, 0.2) # Luz ambiente (não fica preto total à noite)
+# Luz (Reduzindo o branco estourado)
+COLOR_SUN     = glm.vec3(1.00, 0.90, 0.70) # Amarelo manteiga suave
+COLOR_AMBIENT = glm.vec3(0.60, 0.60, 0.70) # Ambiente azulado e forte (sombras claras)
 
 # Configuraçõs de Sombra
 SHADOW_MAP_WIDTH = 2048

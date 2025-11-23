@@ -41,7 +41,7 @@ class Camera:
         front_vec.z = glm.sin(glm.radians(self.yaw)) * glm.cos(glm.radians(self.pitch))
         self.front = glm.normalize(front_vec)
 
-    def update_physics(self, delta_time, terrain):
+    def update_physics(self, delta_time, terrain, vegetation=None):
         """Aplica gravidade e mantém o jogador acima do terreno."""
         
         # 1. Aplicar Gravidade
@@ -67,6 +67,28 @@ class Camera:
             self.on_ground = True
         else:
             self.on_ground = False
+        
+        # --- Colisão com Árvores (Círculo-Círculo Simples) ---
+        if vegetation:
+            player_radius = 0.5 # Gordinho do jogador
+            
+            for tx, tz, tr in vegetation.tree_positions:
+                # Distância entre jogador e árvore (apenas X e Z)
+                dx = self.pos.x - tx
+                dz = self.pos.z - tz
+                dist = (dx**2 + dz**2)**0.5
+                
+                min_dist = player_radius + tr
+                
+                if dist < min_dist:
+                    # Colisão detectada! Empurrar jogador para fora
+                    # Vetor de empurrão normalizado
+                    push_x = dx / dist
+                    push_z = dz / dist
+                    
+                    # Move o jogador para a borda da árvore
+                    self.pos.x = tx + push_x * min_dist
+                    self.pos.z = tz + push_z * min_dist
 
     def jump(self):
         """Pula apenas se estiver no chão."""

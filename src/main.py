@@ -12,6 +12,9 @@ from vegetation import Vegetation
 from population import Population
 from water import Water
 
+import math
+
+
 import numpy as np
 
 
@@ -96,9 +99,12 @@ class Engine:
         
 
         # Variáveis de Cena para o ciclo do dia
-        self.scene_time = 0.0 # Tempo em segundos desde o início do programa
+        self.scene_time = 480.0 # Tempo em segundos desde o início do programa
         self.sun_direction = glm.vec3(1.0, 0.0, 0.0) # Direção inicial do sol
         self.sky_color = settings.COLOR_DAY # Cor inicial do céu
+
+        # Shader de Contorno
+        self.outline_shader = Shader("shaders/outline.vert", "shaders/outline.frag")
 
         # Relogio 
         self.text_shader = Shader("shaders/text.vert", "shaders/text.frag")
@@ -106,8 +112,6 @@ class Engine:
 
         # Projeção ortográfica para HUD do relogio
         self.hud_projection = glm.ortho(0, self.width, 0, self.height)
-
-
 
         # Testar o carregamento do shader
         try:
@@ -145,6 +149,35 @@ class Engine:
             glfw.terminate()
             exit() # Sair se os shaders não carregarem
 
+    def render_with_outline(self, model_obj, view, projection, model_matrix=None, thickness=0.12):
+        """Desenha o contorno preto com espessura configurável."""
+        
+        glCullFace(GL_FRONT) 
+        
+        self.outline_shader.use()
+        self.outline_shader.set_uniform_mat4("view", view)
+        self.outline_shader.set_uniform_mat4("projection", projection)
+        # Usa o valor passado por parâmetro (padrão 0.12 se não passar nada)
+        self.outline_shader.set_uniform_float("u_thickness", thickness) 
+        
+        if model_matrix is None:
+             self.outline_shader.set_uniform_mat4("model", glm.mat4(1.0))
+        else:
+             self.outline_shader.set_uniform_mat4("model", model_matrix)
+
+        # Compatibilidade de tipos
+        if isinstance(model_obj, Terrain):
+             model_obj.draw(None, None, None, override_shader=self.outline_shader)
+        elif isinstance(model_obj, Vegetation):
+             glBindVertexArray(model_obj.vao)
+             vertex_count = len(model_obj.vertices) // 9 
+             glDrawArrays(GL_TRIANGLES, 0, vertex_count)
+             glBindVertexArray(0)
+        else:
+             model_obj.draw(self.outline_shader)
+        
+        glCullFace(GL_BACK)
+
     def run(self):
         # Loop principal
         while not glfw.window_should_close(self.window):
@@ -158,7 +191,7 @@ class Engine:
             self.process_keyboard_input()
 
             # ---------- física da câmera ----------
-            self.camera.update_physics(self.delta_time, self.terrain)
+            self.camera.update_physics(self.delta_time, self.terrain, self.vegetation)
 
             # ---------- atualizar ciclo dia/noite ----------
             self.update_day_night_cycle()
@@ -212,6 +245,8 @@ class Engine:
 
             self.terrain.draw(self.camera, projection, self.sun_direction)
 
+            # [NOVO] Desenho do Contorno do Terreno
+            self.render_with_outline(self.terrain, view, projection)
 
             # --- 2. VEGETAÇÃO ---
             self.vegetation.shader.use() # Garante que o shader está ativo antes de enviar uniforms
@@ -225,6 +260,9 @@ class Engine:
                 settings.COLOR_SUN, 
                 settings.COLOR_AMBIENT
             )
+
+            # [NOVO] Contorno da Vegetação (Pode ficar pesado, teste!)
+            self.render_with_outline(self.vegetation, view, projection)
 
             # --- 3. POPULAÇÃO ---
             self.model_shader.use()
@@ -282,7 +320,6 @@ class Engine:
             glfw.swap_buffers(self.window)
             
         glfw.terminate()
-
 
 
     def mouse_callback(self, window, xpos, ypos):
@@ -348,7 +385,7 @@ class Engine:
         self.sun_shader.use()
 
         # posição do sol a 200 metros na direção dele
-        sun_pos_world = self.camera.pos + self.sun_direction * 200.0
+        sun_pos_world = self.camera.pos + self.sun_direction * 400.0
 
         view = self.camera.get_view_matrix()
 
@@ -358,18 +395,16 @@ class Engine:
         # Model = traduz para posição do sol, escalar um pouco
         model = glm.translate(glm.mat4(1.0), sun_pos_world)
         model = model * glm.inverse(billboard_view)   # faz o quad ficar sempre virado pra câmera
-        model = glm.scale(model, glm.vec3(10.0, 10.0, 10.0))  # tamanho do sol
+        model = glm.scale(model, glm.vec3(40.0, 40.0, 40.0)) # Sol Gigante
 
         self.sun_shader.set_uniform_mat4("projection", projection)
         self.sun_shader.set_uniform_mat4("view", view)
         self.sun_shader.set_uniform_mat4("model", model)
 
         # desenhar quad
-        glDisable(GL_DEPTH_TEST)   # evita o sol ficar "cortado" pelo terreno
         glBindVertexArray(self.sun_vao)
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, None)
         glBindVertexArray(0)
-        glEnable(GL_DEPTH_TEST)
         
         
         
