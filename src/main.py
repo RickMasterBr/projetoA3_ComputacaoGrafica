@@ -8,6 +8,9 @@ from terrain import Terrain # Importar a classe Terrain
 from shadow_mapper import ShadowMapper # Importar a classe ShadowMapper
 from model import Model # Importar a classe Model
 from text_renderer import TextRenderer
+from vegetation import Vegetation
+from population import Population
+from water import Water
 
 import numpy as np
 
@@ -44,8 +47,6 @@ class Engine:
         # Variaveis para o delta_time ( tempo entre frames )
         self.last_time = glfw.get_time()
         self.delta_time = 0.0
-        
-        self.sun_direction = glm.normalize(glm.vec3(0.3, 0.6, 0.2))
 
         # ----------- SHADER DO SOL -----------
         self.sun_shader = Shader("shaders/sun.vert", "shaders/sun.frag")
@@ -97,7 +98,7 @@ class Engine:
         # Variáveis de Cena para o ciclo do dia
         self.scene_time = 0.0 # Tempo em segundos desde o início do programa
         self.sun_direction = glm.vec3(1.0, 0.0, 0.0) # Direção inicial do sol
-        self.ski_color = settings.COLOR_DAY # Cor inicial do céu
+        self.sky_color = settings.COLOR_DAY # Cor inicial do céu
 
         # Relogio 
         self.text_shader = Shader("shaders/text.vert", "shaders/text.frag")
@@ -119,11 +120,22 @@ class Engine:
             # Inicializar o terreno com o shader
             self.terrain = Terrain(self.terrain_shader)
 
+            # Cria a floresta (passando o terreno para calcular altura)
+            self.vegetation = Vegetation(self.terrain, count=200)
+
             # Importar personagens
             self.character = Model("assets/models/character.glb", self.model_shader)
             self.abe = Model("assets/models/abe.glb", self.model_shader)
             self.jackie = Model("assets/models/jackie.glb", self.model_shader)
             self.michelle = Model("assets/models/michelle.glb", self.model_shader)
+
+            # --- NOVO: GERAR POPULAÇÃO ---
+            # Agrupa os modelos numa lista
+            models_list = [self.character, self.abe, self.jackie, self.michelle]
+            # Cria a multidão (80 pessoas)
+            self.population = Population(self.terrain, models_list, count=80)
+            # NOVO: Criar o mar (Altura 12 para cobrir o fundo do terreno que vai a zero)
+            self.water = Water(size=800, height=12.0)
 
 
             self.shadow_mapper = ShadowMapper()
@@ -134,172 +146,143 @@ class Engine:
             exit() # Sair se os shaders não carregarem
 
     def run(self):
-    # Loop principal
-     while not glfw.window_should_close(self.window):
-        # ---------- tempo ----------
-        current_time = glfw.get_time()
-        self.delta_time = current_time - self.last_time
-        self.last_time = current_time
+        # Loop principal
+        while not glfw.window_should_close(self.window):
+            # ---------- tempo ----------
+            current_time = glfw.get_time()
+            self.delta_time = current_time - self.last_time
+            self.last_time = current_time
 
-        # ---------- eventos e input ----------
-        glfw.poll_events()
-        self.process_keyboard_input()
+            # ---------- eventos e input ----------
+            glfw.poll_events()
+            self.process_keyboard_input()
 
-        # ---------- física da câmera ----------
-        self.camera.update_physics(self.delta_time, self.terrain)
+            # ---------- física da câmera ----------
+            self.camera.update_physics(self.delta_time, self.terrain)
 
-        # ---------- atualizar ciclo dia/noite ----------
-        self.update_day_night_cycle()
+            # ---------- atualizar ciclo dia/noite ----------
+            self.update_day_night_cycle()
 
-        # ---------- preparar dados para sombras ----------
-        # pegar altura do terreno para posicionamento
-        self.terrain_height_at_center = self.terrain.get_height(0, 0)
+            # ---------- preparar dados para sombras ----------
+            self.terrain_height_at_center = self.terrain.get_height(0, 0)
 
-        # matriz ortográfica para luz direcional (sol)
-        near_plane = 1.0
-        far_plane = 200.0
-        size = 80.0
-        light_projection = glm.ortho(-size, size, -size, size, near_plane, far_plane)
+            # matriz ortográfica para luz direcional (sol)
+            near_plane = 1.0
+            far_plane = 200.0
+            size = 80.0
+            light_projection = glm.ortho(-size, size, -size, size, near_plane, far_plane)
 
-        # posição "olho" do sol a certa distância na direção da luz
-        light_pos = self.camera.pos + (self.sun_direction * 100.0)
-        light_view = glm.lookAt(light_pos, self.camera.pos, glm.vec3(0, 1, 0))
-        light_space_matrix = light_projection * light_view
+            light_pos = self.camera.pos + (self.sun_direction * 100.0)
+            light_view = glm.lookAt(light_pos, self.camera.pos, glm.vec3(0, 1, 0))
+            light_space_matrix = light_projection * light_view
 
-        # ---------- gerar mapa de sombras (depth map) ----------
-        self.shadow_mapper.bind()
-        self.shadow_shader.use()
-        self.shadow_shader.set_uniform_mat4("lightSpaceMatrix", light_space_matrix)
+            # ---------- gerar mapa de sombras (depth map) ----------
+            self.shadow_mapper.bind()
+            self.shadow_shader.use()
+            self.shadow_shader.set_uniform_mat4("lightSpaceMatrix", light_space_matrix)
 
-        # desenhar apenas geometria para o depth map (override shader)
-        self.terrain.draw(self.camera, projection=None, sun_direction=None, override_shader=self.shadow_shader)
+            # desenhar terreno no shadow map
+            self.terrain.draw(self.camera, projection=None, sun_direction=None, override_shader=self.shadow_shader)
 
-        # desenhar o personagem no mapa de sombra
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
-        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
-        self.shadow_shader.set_uniform_mat4("model", model_matrix)
-        self.character.draw(self.shadow_shader)
+            # (Opcional) Desenhar personagens no shadow map seria aqui, mas usando shadow_shader.
+            # Por enquanto, removemos para evitar erros e ganhar performance.
 
-        # ---------- PERSONAGENS EXTRAS NO SHADOW MAP ----------,
-        # ABE
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(5, self.terrain_height_at_center, 0))
-        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
-        self.shadow_shader.set_uniform_mat4("model", model_matrix)
-        self.abe.draw(self.shadow_shader)
+            self.shadow_mapper.unbind(self.width, self.height)
 
-        # JACKIE
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(-5, self.terrain_height_at_center, 3))
-        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
-        self.shadow_shader.set_uniform_mat4("model", model_matrix)
-        self.jackie.draw(self.shadow_shader)
+            # ---------- limpar framebuffer principal e configurar céu ----------
+            glClearColor(self.sky_color.r, self.sky_color.g, self.sky_color.b, 1.0)
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
 
-        # MICHELLE
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(2, self.terrain_height_at_center, -4))
-        model_matrix = glm.scale(model_matrix, glm.vec3(0.01, 0.01, 0.01))
-        self.shadow_shader.set_uniform_mat4("model", model_matrix)
-        self.michelle.draw(self.shadow_shader)
+            # ---------- projeção principal e VIEW ----------
+            projection = glm.perspective(glm.radians(45.0), self.width / self.height, 0.1, 1000.0)
+            
+            # --- CORREÇÃO: Definimos a view aqui, antes de desenhar qualquer coisa ---
+            view = self.camera.get_view_matrix()
 
-        self.shadow_mapper.unbind(self.width, self.height)
+            # Converter a cor do céu (GLM vec3) para uma tupla ou lista para o shader
+            current_sky_color = (self.sky_color.r, self.sky_color.g, self.sky_color.b)
 
-        # ---------- limpar framebuffer principal e configurar céu ----------
-        glClearColor(self.sky_color.r, self.sky_color.g, self.sky_color.b, 1.0)
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+            # ---------- desenhar terreno (com sombras) ----------
+            self.terrain_shader.use()
+            self.terrain_shader.set_uniform_mat4("u_light_space_matrix", light_space_matrix)
+            self.terrain_shader.set_uniform_int("u_shadow_map", 1)
+            self.terrain_shader.set_uniform_vec3("u_sky_color", current_sky_color)
+            glActiveTexture(GL_TEXTURE1)
+            glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
 
-        # ---------- projeção principal ----------
-        projection = glm.perspective(glm.radians(45.0), self.width / self.height, 0.1, 1000.0)
+            self.terrain.draw(self.camera, projection, self.sun_direction)
 
-        # ---------- desenhar terreno (com sombras) ----------
-        self.terrain_shader.use()
-        self.terrain_shader.set_uniform_mat4("u_light_space_matrix", light_space_matrix)
-        self.terrain_shader.set_uniform_int("u_shadow_map", 1)  # textura na unidade 1
 
-        glActiveTexture(GL_TEXTURE1)
-        glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
+            # --- 2. VEGETAÇÃO ---
+            self.vegetation.shader.use() # Garante que o shader está ativo antes de enviar uniforms
+            # NOVO: Enviar cor do céu para o Fog da vegetação
+            self.vegetation.shader.set_uniform_vec3("u_sky_color", current_sky_color)
+            # --- NOVO: DESENHAR VEGETAÇÃO ---
+            self.vegetation.draw(
+                view, 
+                projection, 
+                self.sun_direction, 
+                settings.COLOR_SUN, 
+                settings.COLOR_AMBIENT
+            )
 
-        self.terrain.draw(self.camera, projection, self.sun_direction)
+            # --- 3. POPULAÇÃO ---
+            self.model_shader.use()
+            # NOVO: Enviar cor do céu para o Fog dos personagens
+            self.model_shader.set_uniform_vec3("u_sky_color", current_sky_color)
 
-        # ---------- desenhar personagem (com sombras e iluminação) ----------
-        self.model_shader.use()
-        self.model_shader.set_uniform_mat4("view", self.camera.get_view_matrix())
-        self.model_shader.set_uniform_mat4("projection", projection)
-        self.model_shader.set_uniform_vec3("u_sun_direction", self.sun_direction)
-        self.model_shader.set_uniform_vec3("u_sun_color", settings.COLOR_SUN)
-        self.model_shader.set_uniform_vec3("u_ambient_color", settings.COLOR_AMBIENT)
-        self.model_shader.set_uniform_mat4("u_light_space_matrix", light_space_matrix)
-        self.model_shader.set_uniform_int("u_shadow_map", 1)
+            # --- CORREÇÃO: DESENHAR POPULAÇÃO (Agora no lugar certo!) ---
+            self.population.draw(
+                self.model_shader,
+                view, 
+                projection,
+                self.sun_direction,
+                light_space_matrix
+            )
 
-        escala = 4.0
+            # --- NOVO: DESENHAR ÁGUA ---
+            self.water.draw(view, projection, self.sky_color)
+            
+            # Atualizar animações
+            self.population.update_animations(self.delta_time)
 
-        # atualizar animações
-        self.character.update_animation(self.delta_time)
-        self.abe.update_animation(self.delta_time)
-        self.michelle.update_animation(self.delta_time)
-        self.jackie.update_animation(self.delta_time)
+            # (OBS: Removi as chamadas manuais antigas self.character.draw etc, 
+            # pois a population já desenha todos eles)
 
-        # garantir que a textura de sombra está ativa
-        glActiveTexture(GL_TEXTURE1)
-        glBindTexture(GL_TEXTURE_2D, self.shadow_mapper.depth_map_texture)
+            # ---------- desenhar o sol (BILLBOARD) -----------
+            self.render_sun(projection)
 
-        # ---------- PERSONAGENS EXTRAS ----------
-        # ABE
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(5, self.terrain_height_at_center, 0))
-        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
-        self.model_shader.set_uniform_mat4("model", model_matrix)
-        self.abe.draw(self.model_shader)
+            # ---------- HUD (relógio) ----------
+            game_hour = (self.scene_time / 60.0) % 24.0
+            hour = int(game_hour)
+            minute = int((game_hour - hour) * 60)
+            time_str = f"{hour:02d}:{minute:02d}"
 
-        # JACKIE
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(-5, self.terrain_height_at_center, 3))
-        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
-        self.model_shader.set_uniform_mat4("model", model_matrix)
-        self.jackie.draw(self.model_shader)
+            glDisable(GL_DEPTH_TEST)
+            glEnable(GL_BLEND)
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
 
-        # MICHELLE
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(2, self.terrain_height_at_center, -4))
-        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
-        self.model_shader.set_uniform_mat4("model", model_matrix)
-        self.michelle.draw(self.model_shader)
+            self.text_shader.use()
+            self.text_shader.set_uniform_mat4("projection", self.hud_projection)
+            self.text_shader.set_uniform_int("text", 0)
 
-        # ---------- PERSONAGEM PRINCIPAL ----------
-        model_matrix = glm.translate(glm.mat4(1.0), glm.vec3(0, self.terrain_height_at_center, 0))
-        model_matrix = glm.scale(model_matrix, glm.vec3(escala, escala, escala))
-        self.model_shader.set_uniform_mat4("model", model_matrix)
-        self.character.draw(self.model_shader)
+            self.text_renderer.render_text(
+                self.text_shader,
+                time_str,
+                20,
+                self.height - 40,
+                1.0,
+                (1.0, 1.0, 1.0)
+            )
 
-        # ---------- desenhar o sol (BILLBOARD) -----------
-        self.render_sun(projection)
+            glDisable(GL_BLEND)
+            glEnable(GL_DEPTH_TEST)
 
-        # ---------- HUD (relógio) ----------
-        game_hour = (self.scene_time / 60.0) % 24.0
-        hour = int(game_hour)
-        minute = int((game_hour - hour) * 60)
-        time_str = f"{hour:02d}:{minute:02d}"
+            # ---------- trocar buffers ----------
+            glfw.swap_buffers(self.window)
+            
+        glfw.terminate()
 
-        # HUD sempre por cima
-        glDisable(GL_DEPTH_TEST)
-        glEnable(GL_BLEND)
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-
-        self.text_shader.use()
-        self.text_shader.set_uniform_mat4("projection", self.hud_projection)
-        self.text_shader.set_uniform_int("text", 0)
-
-        self.text_renderer.render_text(
-            self.text_shader,
-            time_str,
-            20,
-            self.height - 40,
-            1.0,
-            (1.0, 1.0, 1.0)
-        )
-
-        glDisable(GL_BLEND)
-        glEnable(GL_DEPTH_TEST)
-
-        # ---------- trocar buffers ----------
-        glfw.swap_buffers(self.window)
-
-    # finalizar
-    glfw.terminate()
 
 
     def mouse_callback(self, window, xpos, ypos):

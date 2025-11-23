@@ -11,6 +11,7 @@ uniform vec3 u_sun_direction;
 uniform vec3 u_sun_color;
 uniform vec3 u_ambient_color;
 uniform sampler2D u_shadow_map;
+uniform vec3 u_sky_color;  // COR DO CÉU PARA FOG
 
 // Textura enviada pelo Python
 uniform sampler2D u_texture_diffuse;
@@ -28,7 +29,7 @@ float calculate_shadow(vec4 frag_pos_light_space, vec3 N, vec3 L) {
 
 void main()
 {
-    // COR DO BONECO
+    // 1. COR DO BONECO (Textura ou Cor Padrão)
     vec4 objectColor;
     if (u_has_texture == 1) {
         objectColor = texture(u_texture_diffuse, v_tex_coords);
@@ -36,9 +37,10 @@ void main()
         objectColor = vec4(0.7, 0.7, 0.7, 1.0); // Cinza padrão se falhar a imagem
     }
     
-    // Se a textura tiver transparência (alpha < 0.1), descarta o pixel
+    // Alpha Clipping (Transparência)
     if(objectColor.a < 0.1) discard;
 
+    // 2. ILUMINAÇÃO
     vec3 N = normalize(v_normal);
     vec3 L = normalize(u_sun_direction);
     float diff = max(dot(N, L), 0.0);
@@ -46,7 +48,17 @@ void main()
     
     vec3 ambient = u_ambient_color * objectColor.rgb;
     vec3 diffuse = diff * u_sun_color * objectColor.rgb;
-    
+
+    // Cor final antes do Fog
     vec3 finalColor = ambient + (1.0 - shadow) * diffuse;
-    FragColor = vec4(finalColor, 1.0);
+
+    // 3. APLICAÇÃO DO FOG
+    float depth = gl_FragCoord.z / gl_FragCoord.w;
+    float fog_factor = smoothstep(200.0, 450.0, depth);
+    
+    // Mistura a cor final com a cor do céu baseada na distância
+    vec3 color_with_fog = mix(finalColor, u_sky_color, fog_factor);
+
+    // 4. SAÍDA FINAL
+    FragColor = vec4(color_with_fog, 1.0);
 }
