@@ -2,13 +2,20 @@ from PIL import Image
 import math
 
 # Configurações da Ilha
-SIZE = 1024          # Tamanho da imagem (1024x1024 é bom para performance)
+SIZE = 1024          # Tamanho da imagem
 CENTER = SIZE / 2
-RADIUS_FLAT = 300    # Raio onde o chão é 100% plano (Área jogável)
-RADIUS_MAX = 480     # Raio onde a ilha termina e cai para o mar
 
-img = Image.new('L', (SIZE, SIZE), color=0) # Cria imagem preta
+# AJUSTE 1: Aumentamos a área garantidamente plana (era 300)
+RADIUS_FLAT = 340    
+
+# AJUSTE 2: Aumentamos o limite da ilha para usar mais espaço da imagem (era 480)
+# Isso ajuda a distribuir a inclinação por uma área maior.
+RADIUS_MAX = 510     
+
+img = Image.new('L', (SIZE, SIZE), color=0) # Cria imagem preta (fundo do mar)
 pixels = img.load()
+
+print("Gerando heightmap... aguarde um momento.")
 
 for x in range(SIZE):
     for y in range(SIZE):
@@ -18,23 +25,35 @@ for x in range(SIZE):
         distance = math.sqrt(dx*dx + dy*dy)
 
         if distance < RADIUS_FLAT:
-            # Centro plano
+            # Centro totalmente plano (Platô)
             pixels[x, y] = 255
+            
         elif distance < RADIUS_MAX:
-            # Borda caindo (Curva suave para parecer rocha natural)
+            # Zona de transição (Borda caindo)
+            
+            # 'factor' vai de 0.0 (início da queda) até 1.0 (fim da ilha)
             factor = (distance - RADIUS_FLAT) / (RADIUS_MAX - RADIUS_FLAT)
-            # Usar coseno para uma curva mais arredondada tipo "Super Mario Galaxy"
+            
+            # --- O TRUQUE MATEMÁTICO ---
+            # Elevamos o fator ao quadrado (ou cubo). 
+            # Isso faz com que o número permaneça pequeno no início e cresça rápido no final.
+            # Resultado: A ilha mantém a altura por mais tempo e cai só na borda final.
+            # Tenta alterar para 3.0 se quiseres ainda mais plano!
+            factor = math.pow(factor, 2.0)
+            
+            # Usar coseno para a curva S suave
             height = (math.cos(factor * math.pi) + 1) / 2 
+            
             pixels[x, y] = int(height * 255)
         else:
             # Mar/Vazio
             pixels[x, y] = 0
 
-# Salva na pasta de texturas (ajuste o caminho se necessário)
+# Salva na pasta de texturas
 try:
-    img.save("assets/textures/heightmap.jpg")
-    print("Sucesso! Heightmap de Ilha Flutuante criado em 'assets/textures/heightmap.jpg'")
+    path = "assets/textures/heightmap.jpg"
+    img.save(path)
+    print(f"Sucesso! Heightmap atualizado e salvo em '{path}'")
 except FileNotFoundError:
-    # Caso a pasta não exista, salva na raiz pra vc mover depois
     img.save("heightmap.jpg") 
-    print("Pasta assets não achada. Imagem salva na raiz como 'heightmap.jpg'. Mova-a para assets/textures/")
+    print("AVISO: Pasta 'assets/textures' não encontrada. Imagem salva na raiz como 'heightmap.jpg'.")
