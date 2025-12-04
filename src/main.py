@@ -130,12 +130,12 @@ class Engine:
             # Importar personagens
             self.character = Model("assets/models/character.glb", self.model_shader)
             self.abe = Model("assets/models/abe.glb", self.model_shader)
-            self.jackie = Model("assets/models/jackie.glb", self.model_shader)
+            self.boss = Model("assets/models/boss.glb", self.model_shader)
             self.michelle = Model("assets/models/michelle.glb", self.model_shader)
 
             # --- NOVO: GERAR POPULAÇÃO ---
             # Agrupa os modelos numa lista
-            models_list = [self.character, self.abe, self.jackie, self.michelle]
+            models_list = [self.character, self.abe, self.boss, self.michelle]
             # Cria a multidão (80 pessoas)
             self.population = Population(self.terrain, models_list, count=80)
             # NOVO: Criar o mar (Altura 12 para cobrir o fundo do terreno que vai a zero)
