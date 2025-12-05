@@ -4,11 +4,11 @@ import math
 import ctypes
 from OpenGL.GL import *
 import numpy as np
-from shader import Shader
+from shader import Shader  # Importação corrigida (sem 'src.')
 
 class Vegetation:
     def __init__(self, terrain, count=150):
-        self.tree_positions = [] 
+        self.tree_positions = [] # <--- NOVO: Lista de posições (x, z, raio)
         self.terrain = terrain
         self.count = count
         self.vertices = []
@@ -27,6 +27,7 @@ class Vegetation:
         spawn_radius = 280 
         
         while generated < self.count and attempts < self.count * 10:
+            
             attempts += 1
             
             # Posição Aleatória
@@ -36,10 +37,11 @@ class Vegetation:
             z = math.sin(angle) * dist
             
             # Pegar altura do terreno nesta posição
+            # Usa o método get_height do seu terrain.py
             try:
                 y = self.terrain.get_height(x, z)
             except:
-                y = 0 # Fallback
+                y = 0 # Fallback caso dê erro
             
             # Regras de Spawn: Evitar água e picos muito altos
             if y < 15 or y > 80:
@@ -48,8 +50,9 @@ class Vegetation:
             self.add_tree(x, y, z)
             generated += 1
 
-            # Mantendo sua lógica original das pedras
+            # Adicione isso logo após o loop das árvores
             for _ in range(100):
+    
                 # Desenhe uma "Pedra Low Poly" (Um cone achatado cinza)
                 stone_color = [0.6, 0.6, 0.65] # Cinza azulado
                 self.add_cone(x, y, z, radius=random.uniform(1.0, 2.0), height=random.uniform(0.5, 1.0), color=stone_color)
@@ -61,18 +64,20 @@ class Vegetation:
         
         scale = random.uniform(1.2, 2.5)
         
-        # 1. TRONCO
+        # 1. TRONCO (Mais grosso e curto)
         self.add_cylinder(x, y, z, 0.5 * scale, 2.0 * scale, trunk_color)
         
-        # 2. COPA
+        # 2. COPA (Estilo "Nuvem" - 2 Icosaedros achatados)
+        # Copa Base
         self.add_cone(x, y + 1.5*scale, z, 2.5*scale, 2.0*scale, leaf_color)
+        # Copa Topo (rotacionada ou deslocada para parecer orgânico)
         self.add_cone(x, y + 3.0*scale, z, 1.8*scale, 1.5*scale, leaf_color)
         
         # Opcional: Adicionar uma pedra pequena na base
         if random.random() > 0.7:
-            self.add_cone(x + 1.0, y, z + 0.5, 0.8, 0.6, [0.5, 0.5, 0.6])
+            self.add_cone(x + 1.0, y, z + 0.5, 0.8, 0.6, [0.5, 0.5, 0.6]) # Pedra cinza
 
-        # Guardar posição para colisão
+        # Guardar posição para colisão (x, z e raio do tronco aprox 1.0)
         self.tree_positions.append((x, z, 1.0))
    
     def add_cylinder(self, cx, cy, cz, radius, height, color):
@@ -88,6 +93,7 @@ class Vegetation:
             x2 = cx + math.cos(angle2) * radius
             z2 = cz + math.sin(angle2) * radius
             
+            # Normal (flat shading)
             nx = math.cos(angle1 + angle_step/2)
             nz = math.sin(angle1 + angle_step/2)
             
@@ -116,6 +122,7 @@ class Vegetation:
             x2 = cx + math.cos(angle2) * radius
             z2 = cz + math.sin(angle2) * radius
             
+            # Calcular Normal da Face
             ux, uy, uz = x2-x1, 0, z2-z1
             vx, vy, vz = top_point[0]-x1, top_point[1]-cy, top_point[2]-z1
             
@@ -143,21 +150,27 @@ class Vegetation:
         
         stride = 9 * 4 
         
+        # Position (loc 0)
         glEnableVertexAttribArray(0)
         glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(0))
         
+        # Color (loc 1)
         glEnableVertexAttribArray(1)
         glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(12))
         
+        # Normal (loc 2)
         glEnableVertexAttribArray(2)
         glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, stride, ctypes.c_void_p(24))
 
     def draw(self, view, projection, sun_direction, sun_color, ambient_color):
         self.shader.use()
+        
+        # Usando os nomes corretos do seu shader.py (set_uniform_mat4 em vez de set_mat4)
         self.shader.set_uniform_mat4("view", view)
         self.shader.set_uniform_mat4("projection", projection)
         self.shader.set_uniform_mat4("model", glm.mat4(1.0)) 
         
+        # Usando os métodos corretos para vetores (set_uniform_vec3)
         self.shader.set_uniform_vec3("u_sun_direction", sun_direction)
         self.shader.set_uniform_vec3("u_sun_color", sun_color)
         self.shader.set_uniform_vec3("u_ambient_color", ambient_color)
@@ -165,10 +178,10 @@ class Vegetation:
         glBindVertexArray(self.vao)
         glDrawArrays(GL_TRIANGLES, 0, len(self.vertices) // 9)
 
-    # --- NOVO: Método necessário para desenhar a sombra das árvores ---
+    # --- NOVO MÉTODO: Desenha sombra ---
     def draw_shadow(self, shader):
-        # A matriz model é identidade pois as árvores já têm posição fixa no mundo
+        # Para sombra, precisamos apenas da geometria.
+        # A vegetação é estática no mundo (model = identidade)
         shader.set_uniform_mat4("model", glm.mat4(1.0))
         glBindVertexArray(self.vao)
         glDrawArrays(GL_TRIANGLES, 0, len(self.vertices) // 9)
-        glBindVertexArray(0)
